@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How a LiDAR scanner works - interactive FARO-style scan simulator</title>
+  <meta name="theme-color" content="#FFFFFF">
+  <meta name="description" content="Interactive simulation of a terrestrial LiDAR scanner: orbit a model workshop and watch the 360 degree scan, point cloud, shadows and stacked positions build up.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cg fill='%23000'%3E%3Ccircle cx='6' cy='22' r='2.4'/%3E%3Ccircle cx='12' cy='14' r='2.4'/%3E%3Ccircle cx='19' cy='19' r='2.4'/%3E%3C/g%3E%3Ccircle cx='25' cy='8' r='3.4' fill='%23002FA7'/%3E%3C/svg%3E">  <script>
+    // Runs before first paint to avoid a theme flash.
+    (function () {
+      var t = null;
+      try { t = localStorage.getItem('theme'); } catch (e) {}
+      if (t !== 'light' && t !== 'dark') t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      document.documentElement.dataset.theme = t;
+      document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#111214' : '#FFFFFF';
+    })();
+  </script>
+  <link rel="stylesheet" href="css/style.css">
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <aside id="ui">
+    <header>
+      <div class="eyebrow"><span class="blue">Points</span> - Scanner Simulator</div>
+      <h1>How a LiDAR<br>scanner sees</h1>
+      <p class="sub">A terrestrial laser scanner in a workshop, step by step.</p>
+    </header>
+
+    <div id="panels">
+      <section class="section" id="secScan">
+        <h2><span class="blue">01</span> Scan</h2>
+        <div class="row">
+          <button id="btnRun" class="primary">Start</button>
+          <button id="btnReset">Reset</button>
+          <button id="btnFast">Finish fast</button>
+        </div>
+        <div class="slider"><label for="speed">Speed</label><input id="speed" type="range" min="15" max="50" value="26"><output id="speedOut"></output></div>
+        <div class="field"><label for="station">Position</label><select id="station"></select></div>
+        <div class="extra" id="scanExtra">
+          <h3>Stack positions</h3>
+          <div class="row">
+            <button id="btnAll" class="primary" title="scan all three positions one after the other">Scan all 3</button>
+            <button id="btnResetAll">Reset all</button>
+          </div>
+          <label class="check"><input type="checkbox" id="chkStack"> Stack all positions in the scene</label>
+          <label class="check"><input type="checkbox" id="chkTint"> Colour by position</label>
+          <p class="note" id="stackInfo"></p>
+        </div>
+      </section>
+
+      <section class="section" id="secDisplay">
+        <h2><span class="blue">02</span> Display</h2>
+        <div class="field"><label for="mode">Colour by</label>
+          <select id="mode"><option value="color">Colour</option><option value="range">Range (distance)</option><option value="intensity">Intensity</option></select>
+        </div>
+        <div class="field"><label for="res">Resolution</label>
+          <select id="res"><option value="360x180">360 x 180 (1&deg;)</option><option value="512x256" selected>512 x 256</option><option value="720x360">720 x 360 (0.5&deg;)</option></select>
+        </div>
+        <div class="extra" id="displayExtra"></div>
+      </section>
+
+      <section class="section" id="secScene">
+        <h2><span class="blue">03</span> Scene</h2>
+        <label class="check"><input type="checkbox" id="chkCloud" checked> Show point cloud</label>
+        <label class="check"><input type="checkbox" id="chkModel" checked> Show workshop model</label>
+        <label class="check"><input type="checkbox" id="chkAnim" checked> Machines moving</label>
+        <div class="slider"><label for="turnSpeed">Turn</label><input id="turnSpeed" type="range" min="0.5" max="8" step="0.5" value="2"><output id="turnOut">2 rpm</output></div>
+        <div class="extra" id="sceneExtra"></div>
+      </section>
+
+      <section class="section" id="secNotes">
+        <h2><span class="blue">04</span> Annotations</h2>
+        <p class="note">Click a scanned point in the <b>panorama</b>: it is pinned at its place in the scene.</p>
+        <div id="annList"></div>
+        <div class="row"><button id="btnAnnClear">Clear annotations</button></div>
+      </section>
+
+      <section class="section" id="secHow">
+        <h2><span class="blue">05</span> How it works</h2>
+        <p class="note"><b>1</b> A laser pulse leaves the scanner and bounces off a surface; the travel time gives the <b>range</b>.</p>
+        <p class="note"><b>2</b> A <b>mirror</b> spins around a horizontal axis and sweeps the beam through a vertical plane (about 300 degrees, the bottom cone is the blind spot).</p>
+        <p class="note"><b>3</b> The <b>head</b> turns slowly around the vertical axis, 180 degrees in total. Each mirror turn paints two opposite columns.</p>
+        <p class="note"><b>4</b> Every range plus the two angles becomes one 3D point. Together they form the 360 degree panorama and the point cloud.</p>
+        <p class="note"><b>5</b> Pillars and machines cast <b>shadows</b>: what the scanner cannot see stays empty. Moving robots leave ghosts.</p>
+      </section>
+
+      <section class="section" id="secCredits">
+        <h2><span class="blue">06</span> Credits</h2>
+        <p class="note">This work is based on "Faro Focus" (<a href="https://sketchfab.com/3d-models/faro-focus-0951b784b9114afa88ef19e8a37c3838" target="_blank" rel="noopener">https://sketchfab.com/3d-models/faro-focus-0951b784b9114afa88ef19e8a37c3838</a>) by VAR Lab (<a href="https://sketchfab.com/varlab" target="_blank" rel="noopener">https://sketchfab.com/varlab</a>) licensed under CC-BY-4.0 (<a href="http://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">http://creativecommons.org/licenses/by/4.0/</a>).</p>
+        <p class="note">3D rendering by <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> (MIT). UI style follows <a href="https://github.com/adpchrgruber/adp_adv_point_lab" target="_blank" rel="noopener">Scan Matter</a>.</p>
+      </section>
+    </div>
+  </aside>
+
+  <div id="stage">
+    <main id="panes">
+      <section class="pane" id="operatorPane">
+        <div class="pane-title"><span>Operator view</span><button id="btnTurn" class="iconbtn" type="button" aria-label="Turntable" title="Turntable"><svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.2 3.7l1.9.6A3.5 3.5 0 1 0 8 4.5v2L4.5 3.5 8 .5z"/></svg></button></div>
+        <div class="stage" id="operatorStage"><canvas id="operatorCanvas"></canvas><div id="labels"></div></div>
+      </section>
+
+      <section class="pane" id="machinePane">
+        <div class="pane-title">
+          <span>What the machine sees</span>
+          <span class="tabs">
+            <button class="tab active" data-view="pano">Panorama</button>
+            <button class="tab" data-view="sphere">360 viewer</button>
+          </span>
+        </div>
+        <div class="stage" id="machineStage">
+          <div class="panoWrap" id="panoView">
+            <canvas id="panoCanvas"></canvas>
+            <div class="cursor" id="curA"></div>
+            <div class="cursor dim" id="curB"></div>
+            <div class="dot" id="curDot"></div>
+            <div id="pins"></div>
+            <div class="axis x"><i style="left:0">0&deg;</i><i style="left:25%">90&deg;</i><i style="left:50%">180&deg;</i><i style="left:75%">270&deg;</i><i style="left:100%">360&deg;</i></div>
+            <div class="axis y"><i style="top:0">+90&deg;</i><i style="top:50%">0&deg;</i><i style="top:83.3%">-60&deg; blind</i></div>
+          </div>
+          <div class="sphereWrap hidden" id="sphereView"><canvas id="sphereCanvas"></canvas><div class="sphereHint">drag to look around - wheel to zoom</div></div>
+        </div>
+        <div class="readout" id="readout"></div>
+      </section>
+    </main>
+
+    <div id="stage-controls">
+      <button id="btnTheme" type="button" aria-label="Toggle light/dark theme" title="Toggle theme"></button>
+    </div>
+    <div id="hint"><span><b>Drag</b> to orbit - <b>right-drag</b> to pan - <b>wheel</b> to zoom - <b>Space</b> to start / pause - <b>click</b> the panorama to annotate</span></div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+  <script>
+    (function () {
+      var btn = document.getElementById('btnTheme');
+      var sun = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5L19 19M5 19l1.5-1.5M17.5 6.5L19 5"/></svg>';
+      var moon = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 14.5A8 8 0 0 1 9.5 4 8 8 0 1 0 20 14.5z"/></svg>';
+      function sync() {
+        var t = document.documentElement.dataset.theme;
+        btn.innerHTML = t === 'dark' ? sun : moon; // shows the theme you switch to
+        document.querySelector('meta[name=theme-color]').content = t === 'dark' ? '#111214' : '#FFFFFF';
+      }
+      function set(t) {
+        document.documentElement.dataset.theme = t;
+        try { localStorage.setItem('theme', t); } catch (e) {}
+        sync();
+        document.dispatchEvent(new CustomEvent('themechange', { detail: { theme: t } }));
+      }
+      btn.onclick = function () { set(document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'); };
+      sync();
+    })();
+  </script>
+</body>
+</html>
